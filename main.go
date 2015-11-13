@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -12,6 +13,8 @@ import (
 func main() {
 	reloaderRunning := true
 
+	// if not enough arguments were given, go ahead and show the usage and
+	// exit
 	if len(os.Args) < 2 {
 		usage()
 		return
@@ -19,13 +22,18 @@ func main() {
 
 	path := os.Args[1]
 
+	// run a quick initial check just to ensure that the binary path is valid
+
 	interruptChan := make(chan os.Signal)
 	signal.Notify(interruptChan, os.Interrupt)
 
 	for reloaderRunning {
 
 		runChan := make(chan bool)
-		cmd := run(runChan)
+		cmd, error := run(runChan)
+		if error != nil {
+			log.Fatal(error)
+		}
 
 		modTimeChan := make(chan bool)
 		go watchModTime(path, modTimeChan)
@@ -43,10 +51,11 @@ func main() {
 				} else {
 					subprocessRunning = false
 					reloaderRunning = false
-					log.Print("Done!")
+					log.Print("Executable exited. Exiting.")
 				}
 			case msg := <-modTimeChan:
 				if !msg {
+					log.Fatal("Error loading mtime for executable.")
 					cmd.Process.Signal(os.Interrupt)
 					subprocessRunning = false
 					reloaderRunning = false
@@ -68,14 +77,14 @@ func usage() {
 }
 
 // Runs the command line args after the first one (this command),
-func run(runChan chan bool) *exec.Cmd {
+func run(runChan chan bool) (*exec.Cmd, error) {
 	cmd := exec.Command(os.Args[1], os.Args[2:len(os.Args)]...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	err := cmd.Start()
 	if err != nil {
-		log.Fatal("Process start failed.")
+		return nil, errors.New("Process start failed. Exiting.")
 	}
 
 	go func() {
@@ -83,7 +92,7 @@ func run(runChan chan bool) *exec.Cmd {
 		runChan <- true
 	}()
 
-	return cmd
+	return cmd, nil
 }
 
 // watches the given path for a change based on the mtime. Signals true
@@ -92,7 +101,6 @@ func run(runChan chan bool) *exec.Cmd {
 func watchModTime(path string, modChan chan bool) {
 	initialModTime, error := modTime(path)
 	if error != nil {
-		log.Fatal("Could not determine mtime for path")
 		modChan <- false
 		return
 	}
@@ -100,7 +108,6 @@ func watchModTime(path string, modChan chan bool) {
 	for {
 		newModTime, error := modTime(path)
 		if error != nil {
-			log.Fatal("Could not determine mtime for path")
 			modChan <- false
 			return
 		}
