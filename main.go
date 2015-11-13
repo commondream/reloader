@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -10,6 +11,12 @@ import (
 
 func main() {
 	reloaderRunning := true
+
+	if len(os.Args) < 2 {
+		usage()
+		return
+	}
+
 	path := os.Args[1]
 
 	interruptChan := make(chan os.Signal)
@@ -51,6 +58,13 @@ func main() {
 			}
 		}
 	}
+}
+
+// Displays a helpful usage message
+func usage() {
+	fmt.Println("reloader - A simple executable reloader")
+	fmt.Println("Usage: reloader [executable path] [args]")
+	fmt.Println()
 }
 
 // Runs the command line args after the first one (this command),
