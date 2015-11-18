@@ -1,7 +1,7 @@
 package main
 
 import (
-	"errors"
+	//	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -23,20 +23,19 @@ func main() {
 	path := os.Args[1]
 
 	// run a quick initial check just to ensure that the binary path is valid
-
 	interruptChan := make(chan os.Signal)
 	signal.Notify(interruptChan, os.Interrupt)
 
-	for reloaderRunning {
+	// start the mtime watcher
+	modTimeChan := make(chan bool)
+	go watchModTime(path, modTimeChan)
 
+	for reloaderRunning {
 		runChan := make(chan bool)
 		cmd, error := run(runChan)
 		if error != nil {
 			log.Fatal(error)
 		}
-
-		modTimeChan := make(chan bool)
-		go watchModTime(path, modTimeChan)
 
 		subprocessRunning := true
 		restarting := false
@@ -55,14 +54,11 @@ func main() {
 				}
 			case msg := <-modTimeChan:
 				if !msg {
-					log.Fatal("Error loading mtime for executable.")
-					cmd.Process.Signal(os.Interrupt)
-					subprocessRunning = false
-					reloaderRunning = false
+					log.Print("Error loading mtime for executable.")
 				} else {
-					log.Print("Executable modified. Restarting.")
 					cmd.Process.Signal(os.Interrupt)
 					restarting = true
+					log.Print("Executable modified. Restarting.")
 				}
 			}
 		}
@@ -82,9 +78,19 @@ func run(runChan chan bool) (*exec.Cmd, error) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	err := cmd.Start()
-	if err != nil {
-		return nil, errors.New("Process start failed. Exiting.")
+	retries := 5
+	for retry := 1; retry <= retries; retry++ {
+		err := cmd.Start()
+		if err != nil {
+			log.Print("Error occurred")
+			if retry == retries {
+				log.Print("Retry limit hit")
+				return nil, err //errors.New("Process start failed. Exiting.")
+			}
+			time.Sleep(1 * time.Second)
+		} else {
+			break
+		}
 	}
 
 	go func() {
@@ -99,7 +105,7 @@ func run(runChan chan bool) (*exec.Cmd, error) {
 // on modChan if a change happens, or false if the file can't be checked
 // for mtime for some reason
 func watchModTime(path string, modChan chan bool) {
-	initialModTime, error := modTime(path)
+	currentModTime, error := modTime(path)
 	if error != nil {
 		modChan <- false
 		return
@@ -109,15 +115,14 @@ func watchModTime(path string, modChan chan bool) {
 		newModTime, error := modTime(path)
 		if error != nil {
 			modChan <- false
-			return
 		}
 
-		if newModTime.After(initialModTime) {
+		if !newModTime.Equal(currentModTime) {
+			currentModTime = newModTime
 			modChan <- true
-			return
 		}
 
-		time.Sleep(1000)
+		time.Sleep(1 * time.Second)
 	}
 }
 
