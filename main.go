@@ -82,10 +82,8 @@ func run(runChan chan bool) (*exec.Cmd, error) {
 	for retry := 1; retry <= retries; retry++ {
 		err := cmd.Start()
 		if err != nil {
-			log.Print("Error occurred")
 			if retry == retries {
-				log.Print("Retry limit hit")
-				return nil, err //errors.New("Process start failed. Exiting.")
+				return nil, err
 			}
 			time.Sleep(1 * time.Second)
 		} else {
